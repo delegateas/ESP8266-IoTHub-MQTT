@@ -4,14 +4,25 @@
 #include "config.h"
 #include <MQTT.h>
 
+#define SEND_INTERVAL 60000
+#define WARN_INTERVAL 30000
+
 WiFiClientSecure net;
 MQTTClient client(1024);
 
 unsigned long lastMillis = 0;
+unsigned long lastMillisWarn = 0;
 
 // This is an instance of the sensor reading library
 DHT12 dht12;
-bool state = false;
+bool let_state = false;
+bool sendData = true;
+bool sendWarns = true;
+float temp_threshold = 34;
+float humd_threshold = 35;
+
+void sendSensorData();
+void warnSensorData(char state[], float value);
 
 // Connect to wifi and then connect to MQTT
 void connect() {
@@ -39,13 +50,15 @@ void connect() {
 
 void messageReceived(String &topic, String &payload) {
   // For now we only support receiving a "toggle" message from cloud-to-device
-  if(payload = "toggle"){
-    if(state == false){
+  StaticJsonDocument<256> doc;
+  deserializeJson(doc, payload);
+  if(payload = ""){
+    if(let_state == false){
       digitalWrite(LED_BUILTIN, HIGH);
-      state = !state;
+      let_state = !let_state;
     }else{
       digitalWrite(LED_BUILTIN, LOW);
-      state = !state;
+      let_state = !let_state;
     }
     Serial.println("got toggle");  
   }
@@ -74,21 +87,47 @@ void loop() {
   if (!client.connected()) {
     connect();
   }
+  
+  if(dht12.get() == 0){
+    // publish sensor readings roughly every minute.
+    if (sendData && millis() - lastMillis > SEND_INTERVAL) {
+      sendSensorData();
+    }
 
-  // publish sensor readings roughly every minute.
-  if (millis() - lastMillis > 60000) {
-    if(dht12.get()==0){
-      float h = dht12.cTemp;
-      float t = dht12.humidity;
-      DynamicJsonDocument doc(300);
-      doc["Array"]["temp"] = t;
-      doc["Array"]["humd"] = h;
-      String jsonStr;
-      serializeJson(doc, Serial);
-      Serial.println("sent: " + jsonStr);
-      
-      lastMillis = millis();
-      client.publish(TOPICPUB, jsonStr);
+    // Send warnings out if we're above temperature and humidity thresholds
+    if(sendWarns && dht12.cTemp >= temp_threshold && millis() - lastMillisWarn > WARN_INTERVAL){
+      warnSensorData("-1", dht12.cTemp);
+    }else if(sendWarns && dht12.humidity >= humd_threshold && millis() - lastMillisWarn > WARN_INTERVAL){
+      warnSensorData("-2", dht12.humidity);
     }
   }
+
+}
+
+void sendSensorData(){
+  float t = dht12.cTemp;
+  float h = dht12.humidity;
+  DynamicJsonDocument doc(300);
+  doc["Body"]["status"] = "0";
+  doc["Body"]["temp"] = t;
+  doc["Body"]["humd"] = h;
+  String jsonStr;
+  serializeJson(doc, Serial);
+  Serial.println(" sent" + jsonStr);
+  
+  lastMillis = millis();
+  client.publish(TOPICPUB, jsonStr);
+}
+
+
+void warnSensorData(char state[], float value){
+    DynamicJsonDocument doc(300);
+    doc["Body"]["status"] = state;
+    doc["Body"]["temp"] = value;
+    String jsonStr;
+    serializeJson(doc, Serial);
+    Serial.println(" sent warn" + jsonStr);
+    
+    lastMillisWarn = millis();
+    client.publish(TOPICPUB, jsonStr);
 }
