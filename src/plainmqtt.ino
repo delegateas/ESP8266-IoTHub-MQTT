@@ -52,7 +52,7 @@ void messageReceived(String &topic, String &payload) {
   // For now we only support receiving a "toggle" message from cloud-to-device
   StaticJsonDocument<256> doc;
   deserializeJson(doc, payload);
-  if(payload = ""){
+  if(doc["command"] == "toggle_light"){
     if(let_state == false){
       digitalWrite(LED_BUILTIN, HIGH);
       let_state = !let_state;
@@ -63,6 +63,13 @@ void messageReceived(String &topic, String &payload) {
     Serial.println("got toggle");  
   }
   
+  if(doc["command"] == "toggle_data"){
+    sendData = !sendData;
+  }
+
+  if(doc["command"] == "toggle_warn"){
+    sendWarns = !sendWarns;
+  }
 }
 
 void setup() {
