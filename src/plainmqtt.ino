@@ -5,7 +5,8 @@
 #include <MQTT.h>
 
 #define SEND_INTERVAL 60000
-#define WARN_INTERVAL 30000
+#define WARN_INTERVAL 60000
+#define SEND_DATA 0
 
 WiFiClientSecure net;
 MQTTClient client(1024);
@@ -15,14 +16,17 @@ unsigned long lastMillisWarn = 0;
 
 // This is an instance of the sensor reading library
 DHT12 dht12;
-bool let_state = false;
+bool led_state = true;
 bool sendData = true;
 bool sendWarns = true;
-float temp_threshold = 34;
-float humd_threshold = 35;
+float temp_threshold = 50;
+float humd_threshold = 60;
+
+float humd_threshold_increase = 0;
 
 void sendSensorData();
 void warnSensorData(char state[], float value);
+void blink(int times, int delayBetween);
 
 // Connect to wifi and then connect to MQTT
 void connect() {
@@ -45,22 +49,33 @@ void connect() {
   Serial.println("\nconnected!");
 
   client.subscribe(TOPICSUB);
-  // client.unsubscribe("/hello");
+  dht12.get();
 }
 
 void messageReceived(String &topic, String &payload) {
-  // For now we only support receiving a "toggle" message from cloud-to-device
   StaticJsonDocument<256> doc;
+  // Deserialize JSON from MQTT
   deserializeJson(doc, payload);
+  // We check "command" value of json
   if(doc["command"] == "toggle_light"){
-    if(let_state == false){
+    if(led_state == true){
       digitalWrite(LED_BUILTIN, HIGH);
-      let_state = !let_state;
+      led_state = !led_state;
     }else{
       digitalWrite(LED_BUILTIN, LOW);
-      let_state = !let_state;
+      led_state = !led_state;
     }
-    Serial.println("got toggle");  
+    Serial.println("got toggle LED");  
+  }
+
+  if(doc["command"] == "led_on"){
+    led_state = true;
+    digitalWrite(LED_BUILTIN, LOW);
+  }
+
+  if(doc["command"] == "led_off"){
+    led_state = false;
+    digitalWrite(LED_BUILTIN, HIGH);
   }
   
   if(doc["command"] == "toggle_data"){
@@ -70,6 +85,18 @@ void messageReceived(String &topic, String &payload) {
   if(doc["command"] == "toggle_warn"){
     sendWarns = !sendWarns;
   }
+
+  if(doc["command"] == "simulate_water_leakage"){
+    humd_threshold_increase = 50;
+  }
+
+  if(doc["command"] == "stop_water_leakage"){
+    humd_threshold_increase = 0;
+  }
+
+  if(doc["command"] == "send_data"){
+    sendSensorData();
+  }
 }
 
 void setup() {
@@ -77,6 +104,7 @@ void setup() {
   WiFi.begin(SSID, PASS);
   // Initialize the LED_BUILTIN pin as an output
   pinMode(LED_BUILTIN, OUTPUT);
+  // The LED states for the builtin LED are switched LOW = on, HIGH = off
   digitalWrite(LED_BUILTIN, LOW);
   
   // We connect on iothubs MQTT server on port 8883
@@ -96,31 +124,32 @@ void loop() {
   }
   
   if(dht12.get() == 0){
-    // publish sensor readings roughly every minute.
-    if (sendData && millis() - lastMillis > SEND_INTERVAL) {
+    // publish sensor readings roughly every minute if enabled with SEND_DATA define
+    if (SEND_DATA && sendData && millis() - lastMillis > SEND_INTERVAL) {
       sendSensorData();
     }
-
-    // Send warnings out if we're above temperature and humidity thresholds
+    // Send warnings out if we're above temperature and humidity thresholds (Humidity can be simulated)
     if(sendWarns && dht12.cTemp >= temp_threshold && millis() - lastMillisWarn > WARN_INTERVAL){
-      warnSensorData("-1", dht12.cTemp);
-    }else if(sendWarns && dht12.humidity >= humd_threshold && millis() - lastMillisWarn > WARN_INTERVAL){
-      warnSensorData("-2", dht12.humidity);
+      sendSensorData();
+      lastMillisWarn = millis();
+    }else if(sendWarns && (dht12.humidity + humd_threshold_increase) >= humd_threshold && millis() - lastMillisWarn > WARN_INTERVAL){
+      // Do 3 blinks before sending data
+      blink(3, 500);
+      sendSensorData();
+      lastMillisWarn = millis();
     }
   }
-
 }
 
 void sendSensorData(){
   float t = dht12.cTemp;
-  float h = dht12.humidity;
-  DynamicJsonDocument doc(300);
-  doc["Body"]["status"] = "0";
-  doc["Body"]["temp"] = t;
-  doc["Body"]["humd"] = h;
+  float h = dht12.humidity + humd_threshold_increase;
+  StaticJsonDocument<256> doc;
+  doc["Temperature"] = t;
+  doc["Humidity"] = h;
   String jsonStr;
-  serializeJson(doc, Serial);
-  Serial.println(" sent" + jsonStr);
+  serializeJson(doc, jsonStr);
+  Serial.println("sent " + jsonStr);
   
   lastMillis = millis();
   client.publish(TOPICPUB, jsonStr);
@@ -128,13 +157,25 @@ void sendSensorData(){
 
 
 void warnSensorData(char state[], float value){
-    DynamicJsonDocument doc(300);
-    doc["Body"]["status"] = state;
-    doc["Body"]["temp"] = value;
+    StaticJsonDocument<256> doc;
+    doc["status"] = state;
+    doc["reading"] = value;
     String jsonStr;
-    serializeJson(doc, Serial);
-    Serial.println(" sent warn" + jsonStr);
+    serializeJson(doc, jsonStr);
+    Serial.println("sent warn " + jsonStr);
     
     lastMillisWarn = millis();
     client.publish(TOPICPUB, jsonStr);
+}
+
+void blink(int times, int delayBetween){
+  for(int i = 0; i < times; i++)
+  {
+    digitalWrite(LED_BUILTIN, !led_state ? LOW : HIGH);
+    delay(delayBetween);
+    digitalWrite(LED_BUILTIN, led_state ? LOW : HIGH);
+    delay(delayBetween);
+  }
+  delay(delayBetween);
+  digitalWrite(LED_BUILTIN, led_state ? LOW : HIGH);
 }
