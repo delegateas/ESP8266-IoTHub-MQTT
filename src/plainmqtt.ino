@@ -113,7 +113,7 @@ void setup() {
   // messageReceived is a callback on each message from our sub topic
   client.onMessage(messageReceived);
   connect();
-  blink(3, 400);
+  blink(1, 400);
 }
 
 void loop() {
@@ -132,6 +132,7 @@ void loop() {
     }
     // Send warnings out if we're above temperature and humidity thresholds (Humidity can be simulated)
     if(sendWarns && dht12.cTemp >= temp_threshold && millis() - lastMillisWarn > WARN_INTERVAL){
+      blink(3, 400);      
       sendSensorData();
       lastMillisWarn = millis();
     }
@@ -140,7 +141,6 @@ void loop() {
       // Do 3 blinks before sending data
       blink(3, 400);
       sendSensorData();
-      Serial.println(dht12.humidity);
       lastMillisWarn = millis();
     }
   }
