@@ -4,9 +4,9 @@
 #include "config.h"
 #include <MQTT.h>
 
-#define SEND_INTERVAL 60000
-#define WARN_INTERVAL 60000
-#define SEND_DATA 0
+#define SEND_INTERVAL 30000
+#define WARN_INTERVAL 30000
+#define SEND_DATA 1
 
 WiFiClientSecure net;
 MQTTClient client(1024);
@@ -128,6 +128,7 @@ void loop() {
     // publish sensor readings roughly every minute if enabled with SEND_DATA define
     if (SEND_DATA && sendData && millis() - lastMillis > SEND_INTERVAL) {
       sendSensorData();
+      blink(2, 400);
     }
     // Send warnings out if we're above temperature and humidity thresholds (Humidity can be simulated)
     if(sendWarns && dht12.cTemp >= temp_threshold && millis() - lastMillisWarn > WARN_INTERVAL){
