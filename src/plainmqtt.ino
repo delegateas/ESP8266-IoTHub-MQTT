@@ -105,14 +105,15 @@ void setup() {
   // Initialize the LED_BUILTIN pin as an output
   pinMode(LED_BUILTIN, OUTPUT);
   // The LED states for the builtin LED are switched LOW = on, HIGH = off
-  digitalWrite(LED_BUILTIN, LOW);
+  led_state = true;
+  digitalWrite(LED_BUILTIN, HIGH);
   
   // We connect on iothubs MQTT server on port 8883
   client.begin(IOTHOSTNAME, IOTPORT, net);
   // messageReceived is a callback on each message from our sub topic
   client.onMessage(messageReceived);
-
   connect();
+  blink(3, 400);
 }
 
 void loop() {
@@ -132,10 +133,13 @@ void loop() {
     if(sendWarns && dht12.cTemp >= temp_threshold && millis() - lastMillisWarn > WARN_INTERVAL){
       sendSensorData();
       lastMillisWarn = millis();
-    }else if(sendWarns && (dht12.humidity + humd_threshold_increase) >= humd_threshold && millis() - lastMillisWarn > WARN_INTERVAL){
+    }
+    
+    if(sendWarns && (dht12.humidity + humd_threshold_increase) >= humd_threshold && millis() - lastMillisWarn > WARN_INTERVAL){
       // Do 3 blinks before sending data
-      blink(3, 500);
+      blink(3, 400);
       sendSensorData();
+      Serial.println(dht12.humidity);
       lastMillisWarn = millis();
     }
   }
